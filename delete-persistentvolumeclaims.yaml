@@ -1,0 +1,37 @@
+---
+- name: Delete all Artifactory PersistentVolumeClaims
+  tags:
+    - openshift
+    - artifactory
+    - undeploy
+
+  hosts: localhost
+  vars: # FIXME DRY
+    openshift_master_url: "{{ lookup('env','OCP_URL') }}"
+    username: "{{ lookup('env','OCP_USER') }}"
+    password: "{{ lookup('env','OCP_PASSWORD') }}"
+    project_name: acme-dev-infra
+
+  tasks:
+  - name: verify oc version
+    shell: "oc version"
+    register: command_result
+    failed_when:
+      - "'oc v1.3.1' not in command_result.stdout"
+      - "'oc v3.3' not in command_result.stdout"
+
+  - name: login to OpenShift as administrator
+    command: "oc login --insecure-skip-tls-verify=true -u {{ username }} -p {{ password }} {{ openshift_master_url }}"
+
+  - name: make sure to use the right project
+    command: "oc project {{ project_name }}"
+
+  - name: delete all Artifactory PersistentVolumeClaim
+    command: oc delete {{ item.type }} {{ item.name }}
+    with_items:
+      - { type: pvc, name: artifactory-postgresql }
+      - { type: pvc, name: artifactory-logs-artifactory-0 }
+      - { type: pvc, name: artifactory-backup-artifactory-0 }
+      - { type: pvc, name: artifactory-data-artifactory-0 }
+      - { type: pvc, name: artifactory-var-artifactory-0 }
+    ignore_errors: true

@@ -1,0 +1,107 @@
+---
+- hosts: localhost
+  vars:
+    artifactory_api: "{{ lookup('env','ARTIFACTORY_API_URL') }}"
+    local_repositories:
+      - key: generic-testing-local
+        rclass: local
+        description: This is a local generic repository created via REST API, its for testing purpose only.
+        packageType: generic
+      - key: docker-testing-local
+        rclass: local
+        description: This is a local Docker repository created via REST API, its for testing purpose only.
+        packageType: docker
+      - key: docker-release-local
+        rclass: local
+        description: Local repository for in-house container images
+        packageType: docker
+    remote_repositories:
+      - key: redhat-ga-remote
+        rclass: remote
+        description: Red Hat GA repository
+        packageType: maven
+        url: https://maven.repository.redhat.com/ga
+      - key: jboss-fuse-remote
+        rclass: remote
+        description: JBoss Fuse repository
+        packageType: maven
+        url: https://repo.fusesource.com/nexus/content/groups/public/
+      - key: repo1-maven-org-remote
+        rclass: remote
+        description: Maven Central
+        packageType: maven
+        url: https://repo1.maven.org/maven2/
+      - key: npm-org-remote
+        rclass: remote
+        description: a caching proxy for npmjs.org
+        packageType: npm
+        repoLayoutRef: npm-default
+        url: https://registry.npmjs.org/
+      - key: bower-github-remote
+        rclass: remote
+        description: a caching proxy for Bower
+        packageType: bower
+        repoLayoutRef: bower-default
+        url: https://github.com/
+      - key: docker-io-remote
+        rclass: remote
+        description: a caching proxy for Docker Hub
+        packageType: docker
+        url: https://registry-1.docker.io/
+      - key: access-redhat-com-remote
+        rclass: remote
+        description: a caching proxy for the Red Hat registry
+        packageType: docker
+        url: https://registry.access.redhat.com/
+    virtual_repositories:
+      - key: docker-registry
+        rclass: virtual
+        packageType: docker
+        description: ACME Corp Docker Registry
+        artifactoryRequestsCanRetrieveRemoteArtifacts: true
+        repositories:
+          - docker-io-remote
+          - access-redhat-com-remote
+          - docker-release-local
+
+  tasks:
+  - name: create local repositories
+    uri:
+      url: "{{ artifactory_api }}repositories/{{ item.key }}"
+      method: PUT
+      user: admin
+      password: password
+      body: "{{ item | to_json }}"
+      HEADER_Content-Type: "application/vnd.org.jfrog.artifactory.repositories.LocalRepositoryConfiguration+json"
+      register: repository
+    with_items:
+      "{{ local_repositories }}"
+
+  - name: create remote repositories
+    uri:
+      url: "{{ artifactory_api }}repositories/{{ item.key }}"
+      method: PUT
+      user: admin
+      password: password
+      body: "{{ item | to_json }}"
+      HEADER_Content-Type: "application/vnd.org.jfrog.artifactory.repositories.RemoteRepositoryConfiguration+json"
+      register: repository
+    with_items:
+      "{{ remote_repositories }}"
+    ignore_errors: yes
+
+  - name: create virtual repositories
+    uri:
+      url: "{{ artifactory_api }}repositories/{{ item.key }}"
+      method: PUT
+      user: admin
+      password: password
+      body: "{{ item | to_json }}"
+      HEADER_Content-Type: "application/vnd.org.jfrog.artifactory.repositories.VirtualRepositoryConfiguration+json"
+      register: repository
+    with_items:
+      "{{ virtual_repositories }}"
+    ignore_errors: yes
+
+  - name: "OpsProc: add local or remote repositories to virtual repositories"
+    debug: msg="dont forget to do it!"
