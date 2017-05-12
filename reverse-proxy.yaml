@@ -1,0 +1,185 @@
+kind: Template
+apiVersion: v1
+labels:
+  version: 1.3.0-1
+  group: infrastructure
+metadata:
+  annotations:
+    description: This is a nginx based reverse proxy for Artifactory's docker repositories
+    tags: artifactory,reverseproxy,nginx,instant-app
+    version: 1.3.0-1
+  name: artifactory-rev-proxy
+parameters:
+  - name: ARTIFACTORY_REVERSE_PROXY_HOSTNAME
+    displayName: FQDN of Artifactory reverse proxy
+    required: true
+  - name: S2I_NGINX_IMAGESTREAM
+    displayName: S2I NGIX ImageStream name
+    required: true
+    description: This is the Source-to-Image NGINX ImageStream to be used to create the reverse proxy for Artifactory.
+    value: s2i-nginx-acme
+  - name: SOURCE_REPOSITORY_URL
+    description: The URL of the repository with your application source code.
+    displayName: Git Repository URL
+    required: true
+    value: http://gitlab.com/goern/artifactory-on-openshift.git
+  - name: SOURCE_REPOSITORY_REF
+    displayName: Git Reference
+    description: Set this to a branch name, tag or other ref of your repository if you are not using the default branch.
+  - name: CONTEXT_DIR
+    displayName: Context Directory
+    description: Set this to the relative path to your project if it is not in the root of your repository.
+    value: container-image/reverse-proxy-nginx
+  - name: GITHUB_WEBHOOK_SECRET
+    displayName: GitHub Webhook Secret
+    description: A secret string used to configure the GitHub webhook.
+    from: '[a-zA-Z0-9]{40}'
+    generate: expression
+  - name: REV_PROXY_IMAGESTREAM
+    displayName: Reverse Proxy ImageStream name
+    required: true
+    description: This is the ImageStream name incl. Tag to be used to run the reverse proxy for Artifactory.
+    value: artifactory-rev-proxy
+objects:
+# tag::Service[]
+- kind: Service
+  apiVersion: v1
+  metadata:
+    name: artifactory-rev-proxy # <1>
+    annotations:
+      description: NGINX based reverse proxy for Artifactory Docker repositories
+      service.alpha.openshift.io/dependencies: '[{"name":"artifactory","namespace":"","kind":"Service"}]'
+      service.alpha.openshift.io/serving-cert-secret-name: artifactory-nginx
+  spec:
+    ports:
+      -
+        name: web
+        port: 80
+        targetPort: 8080
+    selector:
+      name: artifactory-rev-proxy # <2>
+# end::Service[]
+# tag::DeploymentConfig[]
+- kind: DeploymentConfig
+  apiVersion: v1
+  metadata:
+    name: artifactory-rev-proxy
+    annotations:
+      description: "Defines how to deploy artifactory-rev-proxy"
+  spec:
+    strategy:
+      type: Rolling
+    triggers:
+      - type: ImageChange
+        imageChangeParams:
+          automatic: true
+          containerNames:
+            - artifactory-rev-proxy
+          from:
+            kind: ImageStreamTag
+            name: "${REV_PROXY_IMAGESTREAM}:latest" # <1>
+      - type: ConfigChange
+    replicas: 1
+    selector:
+      name: artifactory-rev-proxy
+    template:
+      metadata:
+        name: artifactory-rev-proxy
+        labels:
+          name: artifactory-rev-proxy
+      spec:
+        containers:
+          - name: artifactory-rev-proxy
+            image: ' '
+            ports:
+              - containerPort: 8080
+            resources:
+              limits:
+                cpu: 25m
+                memory: 16Mi
+            volumeMounts:
+            - name: generated-certificate-volume
+              mountPath: /opt/app-root/etc/
+              readOnly: true
+        volumes:
+        - name: generated-certificate-volume
+          secret:
+            secretName: artifactory-nginx
+# end::DeploymentConfig[]
+# tag::Route[]
+- kind: Route
+  apiVersion: v1
+  metadata:
+    name: artifactory-rev-proxy
+  spec:
+    host: "${ARTIFACTORY_REVERSE_PROXY_HOSTNAME}" # <1>
+    to:
+      kind: Service
+      name: artifactory-rev-proxy # <2>
+    tls:
+      insecureEdgeTerminationPolicy: Allow
+      termination: edge
+# end::Route[]
+- kind: BuildConfig
+  apiVersion: v1
+  metadata:
+    name: s2i-nginx-acme
+    labels:
+      application: artifactory-rev-proxy
+  spec:
+    triggers:
+      - type: ConfigChange
+      - type: ImageChange
+        imageChange:
+          kind: ImageStreamTag
+          name: s2i-nginx:latest
+    source:
+      type: Git
+      git:
+        uri: https://gitlab.com/goern/s2i-nginx.git
+    strategy:
+      type: Docker
+      dockerStrategy:
+    output:
+      to:
+        kind: ImageStreamTag
+        name: 's2i-nginx-acme:latest'
+# tag::BuildConfig[]
+- kind: BuildConfig
+  apiVersion: v1
+  metadata:
+    name: artifactory-rev-proxy # <1>
+    labels:
+      application: artifactory-rev-proxy
+  spec:
+    triggers:
+      - type: ConfigChange
+      - type: ImageChange
+    source:
+      type: Git
+      git:
+        uri: "${SOURCE_REPOSITORY_URL}" # <2>
+        ref: "${SOURCE_REPOSITORY_REF}" # <3>
+      contextDir: "${CONTEXT_DIR}" # <4>
+    strategy:
+      type: Source
+      sourceStrategy:
+        from:
+          kind: ImageStreamTag
+          name: "${S2I_NGINX_IMAGESTREAM}:latest" # <5>
+        env:
+          -
+            name: GIT_SSL_NO_VERIFY
+            value: 'true'
+    output:
+      to:
+        kind: ImageStreamTag
+        name: "${REV_PROXY_IMAGESTREAM}:latest" # <6>
+# end::BuildConfig[]
+# tag::ImageStream[]
+- kind: ImageStream
+  apiVersion: v1
+  metadata:
+    description: This is a NGINX based reverse proxy for Artifactory's docker repositories
+    name: "${REV_PROXY_IMAGESTREAM}" # <1>
+# end::ImageStream[]
