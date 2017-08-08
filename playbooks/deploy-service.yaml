@@ -1,5 +1,5 @@
 ---
-- name: Deploy Artifactory, see https://gitlab.com/RHsyseng/artifactory-on-openshift
+- name: Deploy Artifactory, see https://github.com/RHsyseng/artifactory-on-openshift
   tags:
     - openshift
     - artifactory
